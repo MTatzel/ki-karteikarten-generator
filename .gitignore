@@ -169,3 +169,16 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Virtuelle Umgebung
+venv/
+
+# Lokale Daten und Ausgaben
+data/
+
+# Python Bytecode und Caches
+__pycache__/
+*.pyc
+
+# Einstellungen von VSCode (optional)
+.vscode/
