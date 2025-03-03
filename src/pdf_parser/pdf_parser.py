@@ -61,7 +61,8 @@ class PDFParser:
         text = ""
         potential_heading = []
 
-        for page_num in range(start_page - 1, end_page):
+       # for page_num in range(start_page - 1, end_page):
+        for page_num in range(1, 20):
             page = pdf.load_page(page_num)
             blocks = page.get_text("dict")["blocks"]
 
@@ -109,6 +110,12 @@ class PDFParser:
         if current_chunk:
             self.chunks.append(" ".join(current_chunk))
 
+        # Setze self.raw_text für Kompatibilität mit chunk_text()
+        self.raw_text = "\n\n".join(self.chunks)
+
+        # DEBUG: Ausgabe des extrahierten Textes und self.raw_text
+        logging.debug(f"Extrahierter Text: {self.raw_text[:500]}...")  # Nur die ersten 500 Zeichen
+
         print(f"{len(self.chunks)} Chunks wurden erstellt.")
         self.save_chunks_to_txt()
         return self.chunks
@@ -148,9 +155,39 @@ class PDFParser:
         if current_chunk:
             self.chunks.append(" ".join(current_chunk))
 
+        logging.info(f"{len(self.chunks)} Chunks vor der Optimierung.")
+        self.merge_small_chunks() 
+        logging.info(f"{len(self.chunks)} Chunks nach der Optimierung.")
+
         print(f"{len(self.chunks)} Chunks wurden erstellt.")
         self.save_chunks_to_txt()
         return self.chunks
+    
+    def merge_small_chunks(self, min_tokens=50):
+        """
+        Geht alle Chunks durch und fügt zu kleine Chunks zum nächsten oder vorherigen hinzu
+        """
+        enc = tiktoken.get_encoding("cl100k_base")
+        merged_chunks = []
+
+        i = 0
+        while i < len(self.chunks):
+            current_chunk = self.chunks[i]
+            token_count = len(enc.encode(current_chunk))
+
+            if token_count < min_tokens:
+                # Wenn es nicht der letzte Chunk ist, an den nächsten anhängen
+                if i + 1 < len(self.chunks):
+                    self.chunks[i + 1] = current_chunk + " " + self.chunks[i + 1]
+                # Falls es der letzte Chunk ist, an den vorherigen anhängen
+                elif i > 0:
+                    merged_chunks[-1] += " " + current_chunk
+            else:
+                merged_chunks.append(current_chunk)
+
+            i += 1
+
+        self.chunks = merged_chunks
 
     def save_chunks_to_txt(self, output_file="data/output/chunks.txt"):
         """
