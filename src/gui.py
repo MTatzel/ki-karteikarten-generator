@@ -683,16 +683,18 @@ class ManualProcessingPage(QWidget):
         button_layout.addWidget(self.reset_button)
 
         # Antwort-Eingabe
-        self.answer_edit = PlainTextEdit()  # Verwende die PlainTextEdit-Klasse
+        self.answer_edit = PlainTextEdit()  # Verwende PlainTextEdit für einheitliche Formatierung
         self.answer_edit.setPlaceholderText("Hier die generierte Antwort einfügen...")
+        self.answer_edit.textChanged.connect(self.save_qna_pair)  # 🔥 Speichert Live!
 
-        # Navigations- und Speichern-Buttons
+        # Navigations-Buttons
         nav_layout = QHBoxLayout()
         self.prev_button = QPushButton("⬅ Vorheriger Chunk")
-        self.save_button = QPushButton("✅ Speichern")
         self.next_button = QPushButton("Nächster Chunk ➡")
+        self.preview_button = QPushButton("🔍 Vorschau")  # Vorschau-Button
+
         nav_layout.addWidget(self.prev_button)
-        nav_layout.addWidget(self.save_button)
+        nav_layout.addWidget(self.preview_button)
         nav_layout.addWidget(self.next_button)
 
         # Layout zusammenstellen
@@ -709,16 +711,17 @@ class ManualProcessingPage(QWidget):
         self.reset_button.clicked.connect(self.reset_prompt)
         self.prev_button.clicked.connect(self.prev_chunk)
         self.next_button.clicked.connect(self.next_chunk)
-        self.save_button.clicked.connect(self.save_qna_pair)
+        self.preview_button.clicked.connect(self.show_preview)  # Vorschau
 
     def initializePage(self):
         self.load_chunk(0)
 
     def load_chunk(self, index):
+        """Lädt den ausgewählten Chunk und setzt die gespeicherte Antwort zurück ins Eingabefeld."""
         if 0 <= index < len(self.wizard.chunks):
             self.current_chunk_index = index
 
-            # Prompt laden (bearbeitet oder Original)
+            # 🟢 Prüfen, ob es eine bearbeitete Version des Prompts gibt
             if index in self.edited_prompts:
                 prompt = self.edited_prompts[index]
             else:
@@ -731,12 +734,19 @@ class ManualProcessingPage(QWidget):
                 prompt = prompt_template.format(chunk=chunk, num_questions=num_questions)
 
             self.prompt_edit.setText(prompt)
+
+            # 🟢 Antwort-Feld leeren
             self.answer_edit.clear()
 
-            if index in self.qna_pairs:
-                self.answer_edit.setText(self.qna_pairs[index])
+            # 🔥 Falls eine gespeicherte Antwort existiert → Wiederherstellen!
+            if hasattr(self.wizard, "manual_answers"):
+                for entry in self.wizard.manual_answers:
+                    if entry["chunk"] == index:
+                        logging.debug(f"🔄 Geladene Antwort für Chunk {index}: {entry['answer']}")
+                        self.answer_edit.setText(entry["answer"])
+                        break  # Sobald wir die Antwort gefunden haben, abbrechen
 
-            # Buttons aktivieren/deaktivieren
+            # 🟢 Buttons für Vor/Zurück aktivieren oder deaktivieren
             self.prev_button.setEnabled(index > 0)
             self.next_button.setEnabled(index < len(self.wizard.chunks) - 1)
 
@@ -750,12 +760,27 @@ class ManualProcessingPage(QWidget):
         self.load_chunk(self.current_chunk_index)
 
     def save_qna_pair(self):
-        response_text = self.answer_edit.toPlainText()
-        prompt_text = self.prompt_edit.toPlainText()
+        """Speichert die aktuelle Antwort automatisch."""
+        response_text = self.answer_edit.toPlainText().strip()
+        prompt_text = self.prompt_edit.toPlainText().strip()
 
-        if response_text.strip():
-            self.qna_pairs[self.current_chunk_index] = response_text
-            self.edited_prompts[self.current_chunk_index] = prompt_text
+        if not response_text:
+            return  # Falls das Feld leer ist, nichts speichern
+
+        # Falls `manual_answers` nicht existiert, erstellen
+        if not hasattr(self.wizard, "manual_answers"):
+            self.wizard.manual_answers = []
+
+        # Falls bereits ein Eintrag für diesen Chunk existiert → ersetzen
+        for item in self.wizard.manual_answers:
+            if item["chunk"] == self.current_chunk_index:
+                item["answer"] = response_text
+                logging.debug(f"🔄 Antwort für Chunk {self.current_chunk_index} aktualisiert.")
+                return
+
+        # Sonst neu hinzufügen
+        self.wizard.manual_answers.append({"chunk": self.current_chunk_index, "answer": response_text})
+        logging.debug(f"✅ Antwort für Chunk {self.current_chunk_index} gespeichert.")
 
     def prev_chunk(self):
         if self.current_chunk_index > 0:
@@ -764,6 +789,24 @@ class ManualProcessingPage(QWidget):
     def next_chunk(self):
         if self.current_chunk_index < len(self.wizard.chunks) - 1:
             self.load_chunk(self.current_chunk_index + 1)
+
+    def show_preview(self):
+        """Zeigt eine Vorschau der extrahierten Fragen & Antworten."""
+        response_text = self.answer_edit.toPlainText().strip()
+
+        if not response_text:
+            QMessageBox.warning(self, "Fehler", "Keine Antwort vorhanden.")
+            return
+
+        qna_pairs = self.wizard.qna_generator.extract_qna_pairs(response_text)
+
+        if not qna_pairs:
+            QMessageBox.warning(self, "Vorschau", "⚠ Keine Frage-Antwort-Paare gefunden!")
+            return
+
+        preview_text = "\n\n".join([f"❓ {q['question']}\n💬 {q['answer']}" for q in qna_pairs])
+        QMessageBox.information(self, "Vorschau der generierten Fragen", preview_text)
+
 
 class CardSelectionPage(QWidget):
     def __init__(self, wizard):
@@ -935,7 +978,7 @@ class SummaryPage(QWidget):
                 logging.warning("⚠ Verarbeitung abgebrochen!")
                 return
 
-            qna_pairs = self.wizard.qna_generator.extract_qna_pairs(entry)
+            qna_pairs = self.wizard.qna_generator.extract_qna_pairs(entry["answer"])
             if qna_pairs:
                 processed_cards.extend([{"question": q["question"], "answer": q["answer"], "selected": True} for q in qna_pairs])
             else:

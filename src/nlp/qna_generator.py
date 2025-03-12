@@ -82,29 +82,35 @@ class QnAGenerator:
         except Exception as e:
             logging.error(f"❌ Gemini API-Fehler: {e}")
             return "⚠ Fehler bei Gemini API-Aufruf."
+        
 
     def extract_qna_pairs(self, response_text):
         """
         Extrahiert Fragen und Antworten aus der API-Antwort.
-        Erkennt "Frage:", "Frage 1:", "Q:" usw.
+        Erkennt verschiedene Schreibweisen von Fragen und Antworten.
+        Bereinigt Markdown-Formatierungen und unerwünschte Zeichen.
         """
         logging.debug(f"Analysiere API-Antwort:\n{response_text}")
 
-        qna_pairs = []
-        questions = re.split(r"\b(?:Frage \d*|Frage|Q)[:\-\s]", response_text, flags=re.IGNORECASE)
-        answers = re.split(r"\b(?:Antwort \d*|Antwort|A)[:\-\s]", response_text, flags=re.IGNORECASE)
+        # Entferne Markdown-Sterne (**) und Trennzeichen (---)
+        cleaned_text = re.sub(r"\*\*", "", response_text)  # Entferne fette **Markdown**-Markierungen
+        cleaned_text = re.sub(r"\n?---+\n?", "\n", cleaned_text)  # Entferne "-----" Trennzeichen
+        cleaned_text = re.sub(r"\s*\n\s*", " ", cleaned_text)  # Entferne doppelte Zeilenumbrüche
 
-        # Sicherstellen, dass Fragen & Antworten paarweise sind
-        questions = [q.strip() for q in questions if q.strip()]
-        answers = [a.strip() for a in answers if a.strip()]
+        # Regex zur genauen Erkennung von Fragen & Antworten
+        pattern = re.compile(r"\bFrage(?:\s*\d*)?:\s*(.*?)\s*\bAntwort(?:\s*\d*)?:\s*(.*?)(?=\s*\bFrage|\Z)", re.DOTALL | re.IGNORECASE)
 
-        if len(questions) != len(answers):
-            logging.warning("⚠ Achtung: Unterschiedliche Anzahl an Fragen und Antworten erkannt!")
+        # Frage-Antwort-Paare extrahieren
+        matches = pattern.findall(cleaned_text)
 
-        for q, a in zip(questions, answers):
-            qna_pairs.append({"question": q, "answer": a})
+        # Nur vollständige Paare verwenden
+        qna_pairs = [{"question": q.strip(), "answer": a.strip()} for q, a in matches if q.strip() and a.strip()]
+
+        if not qna_pairs:
+            logging.warning("⚠ Keine Frage-Antwort-Paare gefunden!")
 
         return qna_pairs
+
 
     def load_dynamic_prompt(self):
         """Lädt den dynamischen Prompt für das aktuelle Modell."""
