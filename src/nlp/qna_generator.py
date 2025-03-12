@@ -1,133 +1,118 @@
 import openai
-from openai import OpenAI
-import json
+from google import genai
 import os
 import logging
-from datetime import datetime
+import re
+import json
+
 
 
 class QnAGenerator:
-    def __init__(self, api_key=None):
+    def __init__(self, api_type, api_key=None):
         """
-        Initialisiert den QnAGenerator mit OpenAI API-Key
+        Initialisiert den QnAGenerator für OpenAI, Gemini oder Manuell.
         """
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        if not self.api_key:
-            raise ValueError("OpenAI API-Key nicht gesetzt!")
-        
-        # OpenAI API-Key konfigurieren
-        openai.api_key = self.api_key
+        self.api_type = api_type.lower()  # "openai", "gemini", "manual"
+        self.api_key = api_key  # API-Schlüssel für OpenAI & Gemini
+        self.client = None
 
-        # OpenAI Client konfigurieren
-        self.client = OpenAI(api_key=self.api_key)
+        if self.api_type == "openai":
+            openai.api_key = api_key
+            self.client = openai.OpenAI(api_key=api_key)
 
-        # Prompt-Konfigurationen laden
-        self.system_message = self.load_system_message()
-        self.dynamic_prompt = self.load_dynamic_prompt()
-
-        # Zähler für Fragen initialisieren
-        self.question_count = 0
-
-    def load_system_message(self, file_path="data/prompts/system_message.json"):
-        """
-        Lädt die System-Nachricht aus der JSON-Datei
-        """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"System-Nachricht Datei '{file_path}' nicht gefunden.")
-        
-        with open(file_path, "r", encoding="utf-8") as file:
-            system_message = json.load(file)
-        return system_message
-
-    def load_dynamic_prompt(self, file_path="data/prompts/dynamic_prompt.json"):
-        """
-        Lädt die dynamische Prompt-Vorlage aus der JSON-Datei
-        """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"Dynamischer Prompt '{file_path}' nicht gefunden.")
-        
-        with open(file_path, "r", encoding="utf-8") as file:
-            dynamic_prompt = json.load(file)
-        return dynamic_prompt
+        elif self.api_type == "gemini":
+            #genai.configure(api_key=api_key)
+            self.client = genai.Client(api_key=api_key)
+            self.model = "gemini-2.0-flash"
 
     def generate_qna_pairs(self, chunk, num_questions=3):
         """
-        Generiert Frage-Antwort-Paare mit OpenAI GPT-3.5/4 für den übergebenen Chunk
+        Generiert Fragen & Antworten basierend auf dem gewählten Modell.
         """
-        # Dynamischen Prompt erstellen
-        prompt = self.dynamic_prompt["template"].format(chunk=chunk, num_questions=num_questions)
+        logging.debug(f"Generiere QnA-Paare für {self.api_type}...")
 
-        # Anfrage an OpenAI API mit der korrekten Methode
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": self.system_message["content"]},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=1000,
-            temperature=0.7
-        )
+        # Prompt vorbereiten
+        prompt_template = self.load_dynamic_prompt()
+        formatted_prompt = prompt_template.format(chunk=chunk, num_questions=num_questions)
 
-        # Antwort korrekt aus dem ChatCompletion-Objekt extrahieren
-        answer = response.choices[0].message.content
+        # API-Anfrage je nach Modell
+        response_text = ""
+        if self.api_type == "openai":
+            response_text = self.call_openai(formatted_prompt)
+        elif self.api_type == "gemini":
+            response_text = self.call_gemini(formatted_prompt)
+        elif self.api_type == "manual":
+            response_text = "⚠ Manuelle Verarbeitung – Bitte Antwort eingeben."
+        else:
+            raise ValueError(f"Unbekannter API-Typ: {self.api_type}")
 
-        try:
-            qna_pairs = json.loads(answer)
-            if not isinstance(qna_pairs, list):  # Sicherstellen, dass die Antwort eine Liste ist
-                logging.error("Fehler: OpenAI hat kein gültiges JSON-Array zurückgegeben.")
-                return []
-        except json.JSONDecodeError:
-            logging.error("JSON-Fehler: Die Antwort von OpenAI ist kein gültiges JSON.")
-            return []
-
-        # Überprüfung auf irrelevante Antworten
-        if len(qna_pairs) == 1 and qna_pairs[0]["question"] == "irrelevant":
-            logging.info("Irrelevanter Chunk – keine Fragen und Antworten generiert.")
-            return []
+        # **🔍 Antwort analysieren & Fragen-Antworten extrahieren**
+        qna_pairs = self.extract_qna_pairs(response_text)
 
         return qna_pairs
 
-    def save_qna_to_txt(self, qna_pairs, output_dir="data/output"):
+    def call_openai(self, prompt):
+        """Sendet den Prompt an OpenAI GPT-3.5 Turbo."""
+        try:
+            response = self.client.chat.completions.create(
+                model="gpt-3.5-turbo",  # Kostengünstigere Alternative
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1000,
+                temperature=0.7
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logging.error(f"❌ OpenAI API-Fehler: {e}")
+            return "⚠ Fehler bei OpenAI API-Aufruf."
+
+
+    def call_gemini(self, prompt):
+        """Sendet den Prompt an Gemini (Google AI)."""
+        try:
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                config={
+                    "temperature": 0.5,
+                    "top_p": 0.9,
+                    "max_output_tokens": 1000
+                }
+            )
+            return response.text
+        except Exception as e:
+            logging.error(f"❌ Gemini API-Fehler: {e}")
+            return "⚠ Fehler bei Gemini API-Aufruf."
+
+    def extract_qna_pairs(self, response_text):
         """
-        Speichert die Frage-Antwort-Paare in einer neuen TXT-Datei pro Programmausführung.
-        Der Dateiname enthält einen Zeitstempel, um Überschreiben zu vermeiden.
+        Extrahiert Fragen und Antworten aus der API-Antwort.
+        Erkennt "Frage:", "Frage 1:", "Q:" usw.
         """
-        # Verzeichnis erstellen, falls es noch nicht existiert
-        os.makedirs(output_dir, exist_ok=True)
+        logging.debug(f"Analysiere API-Antwort:\n{response_text}")
 
-        # Erstelle Dateinamen mit Zeitstempel
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_file = os.path.join(output_dir, f"qna_output_{timestamp}.txt")
+        qna_pairs = []
+        questions = re.split(r"\b(?:Frage \d*|Frage|Q)[:\-\s]", response_text, flags=re.IGNORECASE)
+        answers = re.split(r"\b(?:Antwort \d*|Antwort|A)[:\-\s]", response_text, flags=re.IGNORECASE)
 
-        # Datei öffnen und speichern
-        with open(output_file, "w", encoding="utf-8") as file:
-            for i, qna in enumerate(qna_pairs):
-                self.question_count += 1
-                file.write(f"Frage {self.question_count}: {qna['question']}\n")
-                file.write(f"Antwort {self.question_count}: {qna['answer']}\n")
-                file.write("\n" + "-"*40 + "\n\n")  # Trennlinie zwischen den Fragen
+        # Sicherstellen, dass Fragen & Antworten paarweise sind
+        questions = [q.strip() for q in questions if q.strip()]
+        answers = [a.strip() for a in answers if a.strip()]
 
-        logging.info(f"Frage-Antwort-Paare wurden in '{output_file}' gespeichert.")
+        if len(questions) != len(answers):
+            logging.warning("⚠ Achtung: Unterschiedliche Anzahl an Fragen und Antworten erkannt!")
 
+        for q, a in zip(questions, answers):
+            qna_pairs.append({"question": q, "answer": a})
 
-    def save_qna_to_anki(self, qna_pairs, output_dir="data/output"):
-        """
-        Speichert die Frage-Antwort-Paare im Anki-kompatiblen CSV-Format mit Zeitstempel
-        - Tabulator als Trennzeichen für Anki
-        - UTF-8 Kodierung für Umlaute und Sonderzeichen
-        """
-        # Verzeichnis erstellen, falls es noch nicht existiert
-        os.makedirs(output_dir, exist_ok=True)
+        return qna_pairs
 
-        # Erstelle Dateinamen mit Zeitstempel
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_file = os.path.join(output_dir, f"qna_anki_{timestamp}.csv")
-
-        # Datei öffnen und speichern
-        with open(output_file, "w", encoding="utf-8") as file:
-            for qna in qna_pairs:
-                # Frage und Antwort mit Tabulator trennen
-                file.write(f"{qna['question']}\t{qna['answer']}\n")
-
-        logging.info(f"Frage-Antwort-Paare wurden in Anki-CSV '{output_file}' gespeichert.")
-
+    def load_dynamic_prompt(self):
+        """Lädt den dynamischen Prompt für das aktuelle Modell."""
+        prompt_path = f"data/prompts/dynamic_prompt_{self.api_type}.json"
+        try:
+            with open(prompt_path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+                return data.get("template", "")  # Holt den Text aus dem JSON
+        except FileNotFoundError:
+            logging.error(f"⚠ Prompt-Datei nicht gefunden: {prompt_path}")
+            return "Hier ist ein Textabschnitt: \"{chunk}\". Erstelle Fragen und Antworten."
