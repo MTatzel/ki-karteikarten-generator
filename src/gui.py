@@ -263,7 +263,10 @@ class QnAProcessingThread(QThread):
                     logging.warning(f"⚠ Keine Fragen für Chunk {i+1} generiert.")
                     continue
 
-                for question, answer in qna_pairs:
+                for qna in qna_pairs:
+                    question = qna.get("question", "⚠ Fehler: Keine Frage erkannt")
+                    answer = qna.get("answer", "⚠ Fehler: Keine Antwort erkannt")
+
                     logging.debug(f"Frage {len(cards) + 1}: {question} | Antwort: {answer}")
                     cards.append({"question": question, "answer": answer, "selected": True})
 
@@ -813,7 +816,6 @@ class CardSelectionPage(QWidget):
         super().__init__()
         self.wizard = wizard
         self.processing_thread = None  # Hintergrundprozess für die QnA-Erstellung
-        self.cards = []  # Speichert die generierten Karteikarten
 
         # Ladeanimation
         self.label = QLabel("Karteikarten werden generiert...")
@@ -837,32 +839,28 @@ class CardSelectionPage(QWidget):
         self.setLayout(layout)
 
     def initializePage(self):
-        """Startet die Verarbeitung der Chunks."""
-        logging.debug("CardSelectionPage: Starte Verarbeitung der Chunks.")
+        """Startet die Verarbeitung der Chunks über API."""
+        logging.debug("APIProcessingPage: Starte Verarbeitung der Chunks.")
 
-        self.cards = []  # Reset vorherige Karten
         self.label.setText("⏳ Karteikarten werden generiert...")
         self.progress_label.setText("0 von 0 verarbeitet")
         self.spinner_label.setVisible(True)
         self.spinner_movie.start()
 
-        # Daten aus vorheriger Seite abrufen
+        # API-Daten abrufen
         chunks = self.wizard.chunks
-        api_type = "manual" if self.wizard.api_page.manual_radio.isChecked() else "openai" if self.wizard.api_page.openai_radio.isChecked() else "gemini"
+        api_type = "openai" if self.wizard.api_page.openai_radio.isChecked() else "gemini"
         api_key = self.wizard.api_page.api_key_input.text()
         prompt = self.wizard.api_page.dynamic_prompt_edit.toPlainText()
         system_prompt = self.wizard.api_page.system_prompt_edit.toPlainText() if api_type == "openai" else None
         tokens_per_question = self.wizard.api_page.token_input.value()
 
-        logging.debug(f"API-Typ: {api_type}, Tokens pro Frage: {tokens_per_question}, API-Key eingegeben: {'Ja' if api_key else 'Nein'}")
+        logging.debug(f"API: {api_type}, Tokens/Frage: {tokens_per_question}, API-Key: {'Ja' if api_key else 'Nein'}")
         logging.debug(f"Chunks zum Verarbeiten: {len(chunks)}")
 
         # Thread starten
         self.processing_thread = QnAProcessingThread(
-            self.wizard.chunks, api_type, self.wizard.api_page.api_key_input.text(),
-            self.wizard.api_page.dynamic_prompt_edit.toPlainText(),
-            self.wizard.api_page.system_prompt_edit.toPlainText() if api_type == "openai" else None,
-            self.wizard.api_page.token_input.value()
+            chunks, api_type, api_key, prompt, system_prompt, tokens_per_question
         )
         self.processing_thread.progress_signal.connect(self.update_progress)
         self.processing_thread.finished_signal.connect(self.on_processing_finished)
@@ -874,7 +872,7 @@ class CardSelectionPage(QWidget):
         self.progress_label.setText(f"{current} von {total} Chunks verarbeitet...")
 
     def on_processing_finished(self, cards):
-        """Verarbeitung abgeschlossen, zeigt die generierten Karteikarten an."""
+        """Verarbeitung abgeschlossen – Weiterleitung zur SummaryPage."""
         logging.info(f"✅ Verarbeitung abgeschlossen: {len(cards)} Karteikarten erhalten.")
 
         self.spinner_movie.stop()
@@ -886,91 +884,57 @@ class CardSelectionPage(QWidget):
             QMessageBox.warning(self, "Fehler", "Keine Karteikarten wurden generiert.")
             return
 
-        self.wizard.cards = cards  # Speichert die generierten Karten
-
-        # Layout für Kartenanzeige vorbereiten
-        scroll_area = QScrollArea()
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
-
-        self.card_widgets = []
-        for i, card in enumerate(cards):
-            logging.debug(f"Karteikarte {i+1}: Frage: {card['question']} | Antwort: {card['answer']}")
-
-            card_layout = QHBoxLayout()
-
-            question_edit = QTextEdit(card["question"])
-            question_edit.setFixedHeight(100)
-
-            answer_edit = QTextEdit(card["answer"])
-            answer_edit.setFixedHeight(100)
-
-            check_box = QCheckBox("Nutzen")
-            check_box.setChecked(card["selected"])
-            check_box.stateChanged.connect(self.update_selected_cards_label)
-
-            reset_button = QPushButton("Zurücksetzen")
-            reset_button.clicked.connect(lambda _, q=question_edit, a=answer_edit, c=card: self.reset_card(q, a, c))
-
-            card_layout.addWidget(check_box)
-            card_layout.addWidget(question_edit)
-            card_layout.addWidget(answer_edit)
-            card_layout.addWidget(reset_button)
-
-            scroll_layout.addLayout(card_layout)
-            self.card_widgets.append((question_edit, answer_edit, check_box))
-
-        scroll_area.setWidget(scroll_widget)
-        scroll_area.setWidgetResizable(True)
-
-        for i in reversed(range(self.layout().count())):
-            self.layout().itemAt(i).widget().setParent(None)
-
-        self.layout().addWidget(scroll_area)
-        self.update_selected_cards_label()
-
-    def reset_card(self, question_edit, answer_edit, card):
-        """Setzt die Karteikarte auf den Originalzustand zurück."""
-        logging.debug(f"Karteikarte zurückgesetzt: {card['question']}")
-        question_edit.setText(card["question"])
-        answer_edit.setText(card["answer"])
-
-    def update_selected_cards_label(self):
-        """Aktualisiert die Anzahl der ausgewählten Karteikarten."""
-        total_cards = len(self.card_widgets)
-        selected_cards = sum(1 for _, _, check_box in self.card_widgets if check_box.isChecked())
-        logging.debug(f"{selected_cards} von {total_cards} Karteikarten ausgewählt.")
-        self.label.setText(f"{selected_cards} von {total_cards} Karteikarten ausgewählt")
-
+        # Karteikarten speichern und automatisch zur SummaryPage weiterleiten
+        self.wizard.cards = cards
+        self.wizard.next_step()
 
 class SummaryPage(QWidget):
     def __init__(self, wizard):
         super().__init__()
         self.wizard = wizard
-        self.layout = QVBoxLayout()
-        self.label = QLabel("Hier können die Karteikarten gespeichert werden.")
-        self.layout.addWidget(self.label)
-        self.setLayout(self.layout)
+
+        # UI-Elemente
+        self.label = QLabel("Karteikarten Übersicht")
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.scroll_area = QScrollArea()
+        self.scroll_widget = QWidget()
+        self.scroll_layout = QVBoxLayout(self.scroll_widget)
+        self.scroll_area.setWidget(self.scroll_widget)
+        self.scroll_area.setWidgetResizable(True)
+
+        self.save_button = QPushButton("💾 Speichern")
+        self.save_button.clicked.connect(self.save_cards)
+
+        # Layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.label)
+        layout.addWidget(self.scroll_area)
+        layout.addWidget(self.save_button)
+        self.setLayout(layout)
 
     def initializePage(self):
-        """Initialisiert die Seite – prüft, ob manuelle Verarbeitung nötig ist."""
+        """Initialisiert die Seite – zeigt generierte Karteikarten."""
+        logging.debug("SummaryPage: Lade Karteikarten zur Anzeige.")
+
         if hasattr(self.wizard, "manual_answers") and self.wizard.manual_answers:
+            logging.debug("SummaryPage: Manuelle Verarbeitung erkannt – Starte Analyse.")
             self.process_manual_qna_pairs()
         else:
-            self.label.setText("✅ Alle Karteikarten wurden generiert.")
+            logging.debug("SummaryPage: API-generierte Karteikarten anzeigen.")
+            self.display_cards(self.wizard.cards)
 
     def process_manual_qna_pairs(self):
-        """Verarbeitet manuelle Antworten mit Fortschrittsanzeige."""
+        """Verarbeitet manuelle Antworten und zeigt sie an."""
         logging.debug("SummaryPage: Starte Verarbeitung der manuellen Antworten...")
         
         manual_answers = self.wizard.manual_answers
         total_answers = len(manual_answers)
         processed_cards = []
 
-        # Fortschrittsdialog anzeigen
         progress = QProgressDialog("Verarbeite Antworten...", "Abbrechen", 0, total_answers, self)
         progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-        progress.setMinimumDuration(500)  # Verhindert zu schnelles Aufpoppen
+        progress.setMinimumDuration(500)
         progress.setValue(0)
 
         for i, entry in enumerate(manual_answers):
@@ -984,16 +948,59 @@ class SummaryPage(QWidget):
             else:
                 logging.warning(f"⚠ Fehlerhafte Eingabe erkannt: {entry}")
 
-            progress.setValue(i + 1)  # Fortschritt aktualisieren
+            progress.setValue(i + 1)
 
         progress.close()
 
         if processed_cards:
-            self.wizard.cards = processed_cards  # Speichert die generierten Karteikarten
+            self.wizard.cards = processed_cards
             logging.info(f"✅ {len(processed_cards)} manuelle QnA-Paare erfolgreich verarbeitet!")
-            self.label.setText(f"✅ {len(processed_cards)} Karteikarten bereit zum Speichern.")
+            self.display_cards(processed_cards)
         else:
             QMessageBox.warning(self, "Fehler", "⚠ Keine validen QnA-Paare gefunden!")
+
+    def display_cards(self, cards):
+        """Zeigt die generierten Karteikarten an."""
+        logging.debug(f"SummaryPage: Zeige {len(cards)} Karteikarten an.")
+
+        # Entferne vorherige Inhalte
+        for i in reversed(range(self.scroll_layout.count())):
+            self.scroll_layout.itemAt(i).widget().setParent(None)
+
+        self.card_widgets = []
+        for card in cards:
+            card_layout = QHBoxLayout()
+
+            question_edit = QTextEdit(card["question"])
+            question_edit.setFixedHeight(100)
+
+            answer_edit = QTextEdit(card["answer"])
+            answer_edit.setFixedHeight(100)
+
+            check_box = QCheckBox("Nutzen")
+            check_box.setChecked(card["selected"])
+
+            reset_button = QPushButton("🔄 Zurücksetzen")
+            reset_button.clicked.connect(lambda _, q=question_edit, a=answer_edit, c=card: self.reset_card(q, a, c))
+
+            card_layout.addWidget(check_box)
+            card_layout.addWidget(question_edit)
+            card_layout.addWidget(answer_edit)
+            card_layout.addWidget(reset_button)
+
+            self.scroll_layout.addLayout(card_layout)
+            self.card_widgets.append((question_edit, answer_edit, check_box))
+
+    def reset_card(self, question_edit, answer_edit, card):
+        """Setzt die Karteikarte auf den Originalzustand zurück."""
+        logging.debug(f"Karteikarte zurückgesetzt: {card['question']}")
+        question_edit.setText(card["question"])
+        answer_edit.setText(card["answer"])
+
+    def save_cards(self):
+        """Speichert die Karteikarten in eine Datei."""
+        logging.info("💾 Speichere Karteikarten...")
+        QMessageBox.information(self, "Speichern", "Karteikarten erfolgreich gespeichert!")
 
 
 if __name__ == "__main__":

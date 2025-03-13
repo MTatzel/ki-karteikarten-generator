@@ -4,48 +4,56 @@ from nlp.qna_generator import QnAGenerator
 # Logging aktivieren
 logging.basicConfig(level=logging.DEBUG)
 
-def test_qna_extraction_new():
+def test_qna_extraction_burn_down():
     """
-    Testet die Extraktion mit einem neuen Beispieltext.
+    Testet die Extraktion mit einem neuen Beispieltext zu Burn Down Charts.
     """
     generator = QnAGenerator(api_type="manual")
 
     response_text = """
-    **Frage 1:**  
-    Welche mechanischen Hilfsmittel nutzten die Babylonier und Ägypter zur Durchführung von Berechnungen?  
-
-    **Antwort:**  
-    Die Babylonier und Ägypter verwendeten den Abakus und andere mechanische Hilfsmittel, um Berechnungen durchzuführen.  
-
-    ---
-
-    **Frage:**   
-    Welche Rechenoperationen konnten die mechanischen Rechenmaschinen von Blaise Pascal und Gottfried Wilhelm Leibniz ausführen?  
-
-    **Antwort:**  
-    Die Rechenmaschine von Blaise Pascal konnte Additionen und Subtraktionen durchführen, während die Maschine von Gottfried Wilhelm Leibniz zusätzlich Multiplikationen und Divisionen beherrschte.  
+    **Frage 1:**
+    
+    *   **Frage:** Was ist das charakteristische Merkmal eines Burn Down Charts und was wird idealerweise am Ende des Berichtszeitraums erreicht?
+    *   **Antwort:** Das charakteristische Merkmal eines Burn Down Charts ist der angestrebte Kurvenverlauf von links oben nach rechts unten. Im Idealfall wird am Ende des Berichtszeitraums die Null-Linie erreicht, was bedeutet, dass alle offenen Aufgaben "verbrannt" (abgearbeitet) wurden.
 
     ---
 
-    **Frage 3:**  
-    Warum wird die „Analytical Engine“ von Charles Babbage als Vorläufer moderner Computer betrachtet?  
+    **Frage 2:**
+    
+    *   **Frage:** Welche Informationen werden typischerweise auf der X- und Y-Achse eines Burn Down Charts dargestellt und welche Beispiele werden im Text genannt?
+    *   **Antwort:** Die X-Achse (horizontal) stellt den zeitlichen Verlauf dar (z.B. Tage, Wochen, Sprints). Die Y-Achse (vertikal) stellt die Einheit bzw. Kennzahl dar, deren Verlauf über die Zeit veranschaulicht werden soll. Typische Beispiele für die Y-Achse sind die Anzahl der offenen Aufgaben oder von verbrauchten Ressourcen wie Geld oder Zeit.
 
-    **Antwort:**  
-    Die „Analytical Engine“ gilt als Vorläufer moderner Computer, da sie nicht nur rechnen, sondern auch programmiert werden konnte.
+    ---
+
+    **Frage 3:**
+    
+    *   **Frage:** Was stellt die Ideallinie in einem Burn Down Chart dar und wie hilft sie bei der Projektsteuerung?
+    *   **Antwort:** Die Ideallinie veranschaulicht den Idealverlauf der Messpunkte im Burn Down Chart. Durch den Vergleich des tatsächlichen Verlaufs mit der Ideallinie kann man zu jedem Zeitpunkt erkennen, ob sich das Projekt wie geplant entwickelt oder ob es schneller oder langsamer als geplant vorankommt.
+
+    ---
+
+    **Frage 4:**
+    
+    *   **Frage:** In welchen Arten von Projekten werden Burn Down Charts häufig eingesetzt und warum sind sie dort nützlich?
+    *   **Antwort:** Burn Down Charts werden insbesondere bei Softwareprojekten eingesetzt, die in Iterationen organisiert sind bzw. mit Scrum arbeiten. Sie sind dort nützlich, um die Aufgaben innerhalb einer Iteration zu planen und zu verfolgen, die Kommunikation zu unterstützen und einzelne Arbeitspakete zu steuern.
     """
 
     expected_qna_pairs = [
         {
-            "question": "Welche mechanischen Hilfsmittel nutzten die Babylonier und Ägypter zur Durchführung von Berechnungen?",
-            "answer": "Die Babylonier und Ägypter verwendeten den Abakus und andere mechanische Hilfsmittel, um Berechnungen durchzuführen."
+            "question": "Was ist das charakteristische Merkmal eines Burn Down Charts und was wird idealerweise am Ende des Berichtszeitraums erreicht?",
+            "answer": "Das charakteristische Merkmal eines Burn Down Charts ist der angestrebte Kurvenverlauf von links oben nach rechts unten. Im Idealfall wird am Ende des Berichtszeitraums die Null-Linie erreicht, was bedeutet, dass alle offenen Aufgaben \"verbrannt\" (abgearbeitet) wurden."
         },
         {
-            "question": "Welche Rechenoperationen konnten die mechanischen Rechenmaschinen von Blaise Pascal und Gottfried Wilhelm Leibniz ausführen?",
-            "answer": "Die Rechenmaschine von Blaise Pascal konnte Additionen und Subtraktionen durchführen, während die Maschine von Gottfried Wilhelm Leibniz zusätzlich Multiplikationen und Divisionen beherrschte."
+            "question": "Welche Informationen werden typischerweise auf der X- und Y-Achse eines Burn Down Charts dargestellt und welche Beispiele werden im Text genannt?",
+            "answer": "Die X-Achse (horizontal) stellt den zeitlichen Verlauf dar (z.B. Tage, Wochen, Sprints). Die Y-Achse (vertikal) stellt die Einheit bzw. Kennzahl dar, deren Verlauf über die Zeit veranschaulicht werden soll. Typische Beispiele für die Y-Achse sind die Anzahl der offenen Aufgaben oder von verbrauchten Ressourcen wie Geld oder Zeit."
         },
         {
-            "question": "Warum wird die „Analytical Engine“ von Charles Babbage als Vorläufer moderner Computer betrachtet?",
-            "answer": "Die „Analytical Engine“ gilt als Vorläufer moderner Computer, da sie nicht nur rechnen, sondern auch programmiert werden konnte."
+            "question": "Was stellt die Ideallinie in einem Burn Down Chart dar und wie hilft sie bei der Projektsteuerung?",
+            "answer": "Die Ideallinie veranschaulicht den Idealverlauf der Messpunkte im Burn Down Chart. Durch den Vergleich des tatsächlichen Verlaufs mit der Ideallinie kann man zu jedem Zeitpunkt erkennen, ob sich das Projekt wie geplant entwickelt oder ob es schneller oder langsamer als geplant vorankommt."
+        },
+        {
+            "question": "In welchen Arten von Projekten werden Burn Down Charts häufig eingesetzt und warum sind sie dort nützlich?",
+            "answer": "Burn Down Charts werden insbesondere bei Softwareprojekten eingesetzt, die in Iterationen organisiert sind bzw. mit Scrum arbeiten. Sie sind dort nützlich, um die Aufgaben innerhalb einer Iteration zu planen und zu verfolgen, die Kommunikation zu unterstützen und einzelne Arbeitspakete zu steuern."
         }
     ]
 
@@ -57,8 +65,8 @@ def test_qna_extraction_new():
         print(f"Antwort: {pair['answer']}")
         print("-" * 50)
 
-    # Prüfe, ob genau 3 Paare extrahiert wurden
-    assert len(qna_pairs) == 3, f"❌ Es sollten genau 3 Frage-Antwort-Paare erkannt werden, aber es wurden {len(qna_pairs)} gefunden!"
+    # Prüfe, ob genau 4 Paare extrahiert wurden
+    assert len(qna_pairs) == 4, f"❌ Es sollten genau 4 Frage-Antwort-Paare erkannt werden, aber es wurden {len(qna_pairs)} gefunden!"
 
     # Vergleiche jedes Paar mit der erwarteten Ausgabe
     for idx, (actual, expected) in enumerate(zip(qna_pairs, expected_qna_pairs), 1):
@@ -68,4 +76,4 @@ def test_qna_extraction_new():
     print("✅ Neuer Test erfolgreich!")
 
 if __name__ == "__main__":
-    test_qna_extraction_new()
+    test_qna_extraction_burn_down()

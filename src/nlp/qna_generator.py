@@ -49,6 +49,8 @@ class QnAGenerator:
         # **🔍 Antwort analysieren & Fragen-Antworten extrahieren**
         qna_pairs = self.extract_qna_pairs(response_text)
 
+        logging.debug(f"📊 {len(qna_pairs)} QnA-Paare extrahiert: {qna_pairs}")
+
         return qna_pairs
 
     def call_openai(self, prompt):
@@ -87,24 +89,33 @@ class QnAGenerator:
     def extract_qna_pairs(self, response_text):
         """
         Extrahiert Fragen und Antworten aus der API-Antwort.
-        Erkennt verschiedene Schreibweisen von Fragen und Antworten.
-        Bereinigt Markdown-Formatierungen und unerwünschte Zeichen.
+        Bereinigt doppelte "Frage:"-Einträge und entfernt unerwünschte Markdown-Formatierungen.
         """
         logging.debug(f"Analysiere API-Antwort:\n{response_text}")
 
-        # Entferne Markdown-Sterne (**) und Trennzeichen (---)
-        cleaned_text = re.sub(r"\*\*", "", response_text)  # Entferne fette **Markdown**-Markierungen
-        cleaned_text = re.sub(r"\n?---+\n?", "\n", cleaned_text)  # Entferne "-----" Trennzeichen
-        cleaned_text = re.sub(r"\s*\n\s*", " ", cleaned_text)  # Entferne doppelte Zeilenumbrüche
+        # Schritt 1: Entferne Markdown-Formatierungen und Trennzeichen
+        cleaned_text = re.sub(r"\*\*|\*", "", response_text)  # Entferne ** oder *
+        cleaned_text = re.sub(r"\n?---+\n?", "\n", cleaned_text)  # Entferne Trennzeichen (---)
+        cleaned_text = re.sub(r"\s*\n\s*", "\n", cleaned_text)  # Entferne doppelte Zeilenumbrüche
+        cleaned_text = re.sub(r"^\s*-\s*", "", cleaned_text, flags=re.MULTILINE)  # Entferne Listenpunkte "-"
 
-        # Regex zur genauen Erkennung von Fragen & Antworten
-        pattern = re.compile(r"\bFrage(?:\s*\d*)?:\s*(.*?)\s*\bAntwort(?:\s*\d*)?:\s*(.*?)(?=\s*\bFrage|\Z)", re.DOTALL | re.IGNORECASE)
+        # Schritt 2: Regex zur Erkennung von Fragen und Antworten
+        pattern = re.compile(
+            r"\bFrage(?:\s*\d*)?:\s*(.*?)\s*\bAntwort(?:\s*\d*)?:\s*(.*?)(?=\s*\bFrage|\Z)", 
+            re.DOTALL | re.IGNORECASE
+        )
 
-        # Frage-Antwort-Paare extrahieren
         matches = pattern.findall(cleaned_text)
 
-        # Nur vollständige Paare verwenden
-        qna_pairs = [{"question": q.strip(), "answer": a.strip()} for q, a in matches if q.strip() and a.strip()]
+        qna_pairs = []
+        for q, a in matches:
+            question = q.strip()
+            answer = a.strip()
+
+            # Schritt 3: Falls doppelte "Frage:" vorkommen, entferne die erste
+            question = re.sub(r"^(Frage(?:\s*\d*)?:\s*)+", "", question).strip()
+
+            qna_pairs.append({"question": question, "answer": answer})
 
         if not qna_pairs:
             logging.warning("⚠ Keine Frage-Antwort-Paare gefunden!")
