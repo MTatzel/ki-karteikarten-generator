@@ -1,24 +1,26 @@
-import sys
-import os
-import json
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QDoubleSpinBox,
-    QPushButton, QLabel, QStackedWidget, QFrame, QFileDialog, QTextEdit, QCheckBox, QScrollArea,
-    QLineEdit, QGridLayout, QProgressBar, QMessageBox, QProgressDialog, QSpacerItem, QSizePolicy 
-)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from superqt import QRangeSlider
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
-import fitz
-from pdf_parser.pdf_parser import PDFParser
-from nlp.qna_generator import QnAGenerator
-from PyQt6.QtCore import qDebug
-import logging
-import tiktoken
-import pyperclip
-from PyQt6.QtGui import QMovie
 import csv
+import json
+import logging
+import os
+import sys
+
+import fitz
+import pyperclip
+import tiktoken
 from fpdf import FPDF
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, qDebug
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QMovie
+from PyQt6.QtWidgets import (
+    QApplication, QButtonGroup, QCheckBox, QDoubleSpinBox, QFileDialog, QFrame,
+    QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
+    QMessageBox, QProgressBar, QProgressDialog, QPushButton, QRadioButton,
+    QScrollArea, QSpacerItem, QSizePolicy, QSpinBox, QStackedWidget, QTextEdit,
+    QVBoxLayout, QWidget
+)
+from superqt import QRangeSlider
+
+from nlp.qna_generator import QnAGenerator
+from pdf_parser.pdf_parser import PDFParser
 
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -205,8 +207,6 @@ class PlainTextEdit(QTextEdit):
             self.insertPlainText(source.text())  # Nur Klartext einfügen
 
 
-from PyQt6.QtWidgets import QLineEdit, QGridLayout, QFileDialog
-
 class PDFProcessingThread(QThread):
     logging.debug("PDFProcessingThread")
     progress_signal = pyqtSignal(int)  # Fortschrittsbalken-Update
@@ -385,8 +385,6 @@ class PdfSelectionPage(QWidget):
             self.start_page_input.setText("1")
             self.end_page_input.setText(str(total_pages))
 
-from PyQt6.QtWidgets import QTextEdit, QVBoxLayout, QLabel, QScrollArea, QWidget
-
 class ChunkEditingPage(QWidget):
     def __init__(self, wizard):
         super().__init__()
@@ -512,10 +510,6 @@ class ChunkEditingPage(QWidget):
         updated_chunks = [text_edit.toPlainText() for text_edit, check_box in self.chunk_widgets if check_box.isChecked()]
         self.wizard.chunks = updated_chunks
         logging.debug(f"💾 {len(updated_chunks)} Chunks gespeichert.")
-
-
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QRadioButton, QLineEdit, QSpinBox, QTextEdit, QGroupBox, QHBoxLayout, QButtonGroup
-from PyQt6.QtCore import Qt
 
 class ApiSelectionPage(QWidget):
     def __init__(self, wizard):
@@ -925,8 +919,6 @@ class CardSelectionPage(QWidget):
         # Karteikarten speichern und automatisch zur SummaryPage weiterleiten
         self.wizard.cards = cards
         self.wizard.next_step()
-
-from fpdf import FPDF
 
 class PDF(FPDF):
     def __init__(self):
