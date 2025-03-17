@@ -2,9 +2,9 @@ import sys
 import os
 import json
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QDoubleSpinBox,
     QPushButton, QLabel, QStackedWidget, QFrame, QFileDialog, QTextEdit, QCheckBox, QScrollArea,
-    QLineEdit, QGridLayout, QProgressBar, QMessageBox, QProgressDialog
+    QLineEdit, QGridLayout, QProgressBar, QMessageBox, QProgressDialog, QSpacerItem, QSizePolicy 
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from superqt import QRangeSlider
@@ -17,6 +17,9 @@ import logging
 import tiktoken
 import pyperclip
 from PyQt6.QtGui import QMovie
+import csv
+from fpdf import FPDF
+
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
@@ -120,6 +123,9 @@ class Stepper(QMainWindow):
         self.update_stepper()
 
     def next_step(self):
+        if self.current_step == 1:  
+            self.chunk_page.save_chunk_changes()  
+
         if self.current_step == 2:  # API-Seite
             if not self.api_page.show_cost_warning():
                 return  # Abbrechen, wenn der Nutzer "Nein" gewählt hat
@@ -284,30 +290,34 @@ class PdfSelectionPage(QWidget):
         self.wizard = wizard
         self.setAcceptDrops(True)  # Drag & Drop aktivieren
         self.selected_file = None  # Datei speichern
-        self.processing_thread = None  # Hintergrundprozess speichern
-        
-        # "Weiter"-Button beim Start deaktivieren
         self.wizard.btn_next.setEnabled(False)
         
-        # Layout
+        # Hauptlayout
         main_layout = QVBoxLayout()
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
-        content_widget.setFixedWidth(600)
+        content_widget.setFixedWidth(500)
 
         # Dropzone
         self.file_display = QLabel("📂 Ziehe eine Datei hierhin oder klicke auf 'Datei wählen'")
-        self.file_display.setStyleSheet("border: 2px dashed gray; padding: 20px; font-size: 14px;")
+        self.file_display.setStyleSheet(
+            "border: 2px dashed #999; padding: 30px; font-size: 14px; background-color: #222; color: #ddd;"
+        )
         self.file_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.file_display.setFixedHeight(150)
+        self.file_display.setFixedHeight(400)
 
-        self.select_button = QPushButton("Datei wählen")
-        self.select_button.setFixedWidth(180)
+        self.select_button = QPushButton("📁 Datei wählen")
+        self.select_button.setFixedWidth(200)
         self.select_button.clicked.connect(self.select_pdf)
+        self.select_button.setStyleSheet(
+            "background-color: #0078D7; color: white; border-radius: 5px; padding: 8px; font-weight: bold;"
+        )
 
         drop_layout = QVBoxLayout()
-        drop_layout.addWidget(self.file_display)
+        drop_layout.addWidget(self.file_display, alignment=Qt.AlignmentFlag.AlignCenter)
+        drop_layout.addSpacing(10)
         drop_layout.addWidget(self.select_button, alignment=Qt.AlignmentFlag.AlignCenter)
+        drop_layout.addSpacing(20)
 
         content_layout.addLayout(drop_layout)
 
@@ -315,29 +325,35 @@ class PdfSelectionPage(QWidget):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setFrameShadow(QFrame.Shadow.Sunken)
-        content_layout.addSpacing(30) 
         content_layout.addWidget(line)
-        content_layout.addSpacing(30) 
+        content_layout.addSpacing(20)
 
-        # Seitenbereich (anfangs versteckt)
+        # Seitenbereich (sichtbar, aber deaktiviert)
         self.page_section = QWidget()
-        self.page_section.setVisible(False)  # Anfangs unsichtbar
-        page_layout = QGridLayout(self.page_section)
+        page_layout = QHBoxLayout(self.page_section)
+        page_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.range_label = QLabel("Seitenbereich:")
         self.start_page_input = QLineEdit()
         self.start_page_input.setFixedWidth(50)
+        self.start_page_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.start_page_input.setEnabled(False)
+
+        self.bis_label = QLabel("bis")
+        self.bis_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         self.end_page_input = QLineEdit()
         self.end_page_input.setFixedWidth(50)
+        self.end_page_input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.end_page_input.setEnabled(False)
 
-        self.range_slider = QRangeSlider(Qt.Orientation.Horizontal)
-        self.range_slider.valueChanged.connect(self.update_range_inputs)
-
-        page_layout.addWidget(self.range_label, 0, 0)
-        page_layout.addWidget(self.start_page_input, 0, 1)
-        page_layout.addWidget(QLabel("bis"), 0, 2)
-        page_layout.addWidget(self.end_page_input, 0, 3)
-        page_layout.addWidget(self.range_slider, 1, 0, 1, 4)
+        page_layout.addWidget(self.range_label)
+        page_layout.addSpacing(5)
+        page_layout.addWidget(self.start_page_input)
+        page_layout.addSpacing(5)
+        page_layout.addWidget(self.bis_label)
+        page_layout.addSpacing(5)
+        page_layout.addWidget(self.end_page_input)
 
         content_layout.addWidget(self.page_section)
 
@@ -364,17 +380,10 @@ class PdfSelectionPage(QWidget):
             doc.close()
 
             # Seitenbereich aktivieren & Werte setzen
-            self.page_section.setVisible(True)
-            self.range_slider.setMinimum(1)
-            self.range_slider.setMaximum(total_pages)
-            self.range_slider.setValue((1, total_pages))
+            self.start_page_input.setEnabled(True)
+            self.end_page_input.setEnabled(True)
             self.start_page_input.setText("1")
             self.end_page_input.setText(str(total_pages))
-
-    def update_range_inputs(self, values):
-        """Aktualisiert die Eingabefelder basierend auf dem Slider-Wert."""
-        self.start_page_input.setText(str(values[0]))
-        self.end_page_input.setText(str(values[1]))
 
 from PyQt6.QtWidgets import QTextEdit, QVBoxLayout, QLabel, QScrollArea, QWidget
 
@@ -382,32 +391,33 @@ class ChunkEditingPage(QWidget):
     def __init__(self, wizard):
         super().__init__()
         self.wizard = wizard
-        self.processing_thread = None  # Speichert den Verarbeitungsprozess
-        self.selected_chunks_label = QLabel("0 von 0 Chunks ausgewählt")  # Anzeige für die ausgewählten Chunks
+        self.processing_thread = None
+        self.selected_chunks_label = QLabel("0 von 0 Chunks ausgewählt")
 
         # Lade-Label
         self.label = QLabel("Lade Chunks...")
         self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Animierter Lade-Spinner (GIF)
+        # Lade-Spinner
         self.spinner_label = QLabel(self)
-        self.spinner_movie = QMovie("loading.gif")  # Füge ein GIF mit einem Lade-Spinner hinzu
+        self.spinner_movie = QMovie("loading.gif")
         self.spinner_label.setMovie(self.spinner_movie)
         self.spinner_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.spinner_label.setVisible(False)  # Anfangs versteckt
+        self.spinner_label.setVisible(False)
 
-        layout = QVBoxLayout()
-        layout.addWidget(self.label)
-        layout.addWidget(self.spinner_label)  # Spinner ins Layout
-        self.setLayout(layout)
+        # Hauptlayout
+        self.layout = QVBoxLayout()
+        self.layout.addStretch()
+        self.layout.addWidget(self.label, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.layout.addWidget(self.spinner_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.layout.addStretch()
+        self.setLayout(self.layout)
 
     def initializePage(self):
-        """Wird aufgerufen, wenn die Seite aktiv wird – startet die PDF-Verarbeitung."""
         logging.debug("ChunkEditingPage: Starte Verarbeitung der PDF.")
         self.start_processing()
 
     def start_processing(self):
-        """Startet die PDF-Verarbeitung im Hintergrund mit Lade-Animation."""
         logging.debug("start_processing")
         selected_file = self.wizard.selection_page.selected_file
         start_page = int(self.wizard.selection_page.start_page_input.text())
@@ -418,13 +428,11 @@ class ChunkEditingPage(QWidget):
             return
 
         self.wizard.chunks = []
-
-        self.label.setText("⏳ Chunks werden erzeugt...")  # Lade-Text setzen
+        self.label.setText("⏳ Chunks werden erzeugt...")
         self.spinner_label.setVisible(True)
-        self.spinner_movie.start()  # Animation starten
+        self.spinner_movie.start()
 
         if self.processing_thread:
-            logging.debug("DEBUG: Alten Thread entfernen und neuen erstellen.")
             self.processing_thread.finished_signal.disconnect()
             self.processing_thread.quit()
             self.processing_thread.wait()
@@ -432,11 +440,9 @@ class ChunkEditingPage(QWidget):
 
         self.processing_thread = PDFProcessingThread(selected_file, start_page, end_page)
         self.processing_thread.finished_signal.connect(self.on_processing_finished)
-        logging.debug("DEBUG: Neuer Thread wird gestartet.")
         self.processing_thread.start()
 
     def on_processing_finished(self, chunks):
-        """Wird aufgerufen, wenn die Verarbeitung abgeschlossen ist."""
         self.spinner_movie.stop()
         self.spinner_label.setVisible(False)
 
@@ -447,47 +453,65 @@ class ChunkEditingPage(QWidget):
         self.wizard.chunks = chunks
         self.label.setText(f"✅ Es wurden {len(chunks)} Chunks erzeugt.")
 
+        # Scroll-Bereich
         scroll_area = QScrollArea()
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
 
         self.chunk_widgets = []
 
-        for i, chunk in enumerate(chunks):
+        for chunk in chunks:
             chunk_layout = QHBoxLayout()
-            text_edit = QTextEdit(chunk)
-            text_edit.setFixedHeight(160)
-            text_edit.setStyleSheet("background-color: #424242; border: 1px solid #d0d0d0; padding: 5px;")
-            
-            check_box = QCheckBox("Nutzen")
+            check_box = QCheckBox()
             check_box.setChecked(True)
             check_box.stateChanged.connect(self.update_selected_chunks_label)
 
+            text_edit = QTextEdit(chunk)
+            text_edit.setFixedHeight(140)
+            text_edit.setStyleSheet("background-color: #333; color: #fff; border: 1px solid #555; padding: 5px;")
+
             reset_button = QPushButton("Zurücksetzen")
+            reset_button.setStyleSheet("background-color: #444; color: white; padding: 5px;")
             reset_button.clicked.connect(lambda _, te=text_edit, c=chunk: te.setText(c))
 
-            chunk_layout.addWidget(check_box)
+            left_layout = QVBoxLayout()
+            left_layout.addWidget(check_box)
+            left_layout.addStretch()
+
+            right_layout = QVBoxLayout()
+            right_layout.addWidget(reset_button, alignment=Qt.AlignmentFlag.AlignRight)
+            right_layout.addStretch()
+
+            chunk_layout.addLayout(left_layout)
             chunk_layout.addWidget(text_edit)
-            chunk_layout.addWidget(reset_button)
-            
+            chunk_layout.addLayout(right_layout)
+
             scroll_layout.addLayout(chunk_layout)
+            scroll_layout.addSpacing(10)
             self.chunk_widgets.append((text_edit, check_box))
 
         scroll_area.setWidget(scroll_widget)
         scroll_area.setWidgetResizable(True)
 
-        for i in reversed(range(self.layout().count())):
-            self.layout().itemAt(i).widget().setParent(None)
-
-        self.layout().addWidget(scroll_area)
-        self.layout().addWidget(self.selected_chunks_label)
+        # Entferne alte Widgets ohne das gesamte Layout zu zerstören
+        while self.layout.count() > 0:
+            item = self.layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        
+        self.layout.addWidget(scroll_area)
+        self.layout.addWidget(self.selected_chunks_label)
         self.update_selected_chunks_label()
 
     def update_selected_chunks_label(self):
-        """Aktualisiert die Anzeige der Anzahl der ausgewählten Chunks."""
         total_chunks = len(self.chunk_widgets)
         selected_chunks = sum(1 for _, check_box in self.chunk_widgets if check_box.isChecked())
         self.selected_chunks_label.setText(f"{selected_chunks} von {total_chunks} Chunks ausgewählt")
+    
+    def save_chunk_changes(self):
+        updated_chunks = [text_edit.toPlainText() for text_edit, check_box in self.chunk_widgets if check_box.isChecked()]
+        self.wizard.chunks = updated_chunks
+        logging.debug(f"💾 {len(updated_chunks)} Chunks gespeichert.")
 
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QRadioButton, QLineEdit, QSpinBox, QTextEdit, QGroupBox, QHBoxLayout, QButtonGroup
@@ -560,16 +584,31 @@ class ApiSelectionPage(QWidget):
         token_layout.addWidget(self.token_input)
         layout.addLayout(token_layout)
 
-        # Kostenberechnung (Rot färben)
-        self.cost_label = QLabel("Geschätzte Kosten: Keine")
-        self.cost_label.setStyleSheet("color: red; font-weight: bold;")
-        layout.addWidget(self.cost_label)
+        # Kosten pro 1000 Tokens (manuell einstellbar)
+        self.cost_label = QLabel("Kosten pro 1000 Tokens (USD):")
+        self.cost_input = QDoubleSpinBox()
+        self.cost_input.setMinimum(0.001)  # Kleinster sinnvoller Wert
+        self.cost_input.setMaximum(0.1)  # Obergrenze für mögliche Kosten
+        self.cost_input.setDecimals(4)
+        self.cost_input.setSingleStep(0.001)
+        self.cost_input.setValue(0.002)  # Standardwert für OpenAI & Gemini
+
+        cost_layout = QHBoxLayout()
+        cost_layout.addWidget(self.cost_label)
+        cost_layout.addWidget(self.cost_input)
+        layout.addLayout(cost_layout)
+
+        # Berechnung der geschätzten Kosten
+        self.estimated_cost_label = QLabel("Geschätzte Kosten: Keine")
+        self.estimated_cost_label.setStyleSheet("color: red; font-weight: bold;")
+        layout.addWidget(self.estimated_cost_label)
 
         # Signale verbinden
         self.openai_radio.toggled.connect(self.update_ui)
         self.gemini_radio.toggled.connect(self.update_ui)
         self.manual_radio.toggled.connect(self.update_ui)
         self.token_input.valueChanged.connect(self.update_cost_estimate)
+        self.cost_input.valueChanged.connect(self.update_cost_estimate)
 
         self.setLayout(layout)
         self.update_ui()
@@ -582,11 +621,13 @@ class ApiSelectionPage(QWidget):
             self.api_key_input.setPlaceholderText("Manuelle Verarbeitung benötigt keinen API-Schlüssel")
             self.system_prompt_label.setVisible(False)
             self.system_prompt_edit.setVisible(False)
-            self.cost_label.setText("Geschätzte Kosten: Keine")
+            self.estimated_cost_label.setText("Geschätzte Kosten: Keine")
+            self.cost_input.setEnabled(False)  # Kostenfeld ausgrauen
         else:
             self.api_key_input.setEnabled(True)
             self.api_key_input.setPlaceholderText("API-Schlüssel hier eingeben")
-            self.cost_label.setText("Geschätzte Kosten: 0.00 USD")
+            self.estimated_cost_label.setText("Geschätzte Kosten: 0.00 USD")
+            self.cost_input.setEnabled(True)  # Kostenfeld aktivieren
 
         if self.openai_radio.isChecked():
             self.system_prompt_label.setVisible(True)
@@ -599,16 +640,29 @@ class ApiSelectionPage(QWidget):
         self.load_prompts()
 
     def update_cost_estimate(self):
-        """Berechnet die geschätzten Kosten basierend auf der API-Auswahl und Token-Anzahl."""
+        """Berechnet die geschätzten Kosten basierend auf den Chunks, Token-Anzahl und API-Kosten."""
         if self.manual_radio.isChecked():
-            self.cost_label.setText("Geschätzte Kosten: Keine")
+            self.estimated_cost_label.setText("Geschätzte Kosten: Keine")
             return
 
-        cost_per_token = 0.002  # Beispielwert für GPT-4
+        cost_per_1000_tokens = self.cost_input.value()  # Nutzer kann Preis anpassen
         tokens_per_question = self.token_input.value()
-        total_cost = (tokens_per_question / 1000) * cost_per_token
 
-        self.cost_label.setText(f"Geschätzte Kosten: {total_cost:.4f} USD")
+        enc = tiktoken.get_encoding("cl100k_base")  # Tokenizer für OpenAI
+
+        # Berechnung der Tokens aus den ausgewählten Chunks
+        total_chunk_tokens = sum(len(enc.encode(chunk)) for chunk in self.wizard.chunks)
+
+        # Berechnung der Tokens aus den Prompts
+        prompt_tokens = len(enc.encode(self.dynamic_prompt_edit.toPlainText()))
+        if self.openai_radio.isChecked():
+            prompt_tokens += len(enc.encode(self.system_prompt_edit.toPlainText()))  # OpenAI hat System Message
+
+        # Gesamttokens berechnen (inkl. Fragen)
+        total_tokens = total_chunk_tokens + (tokens_per_question * len(self.wizard.chunks)) + prompt_tokens
+        estimated_cost = (total_tokens / 1000) * cost_per_1000_tokens
+
+        self.estimated_cost_label.setText(f"Geschätzte Kosten: {estimated_cost:.4f} USD")
 
     def load_prompts(self):
         """Lädt die Standard-Prompts aus den JSON-Dateien je nach API-Auswahl."""
@@ -637,29 +691,13 @@ class ApiSelectionPage(QWidget):
             with open(file_path, "r", encoding="utf-8") as file:
                 data = json.load(file)
 
-                # Wenn es eine System Message ist, nehme "content"
                 if "system_message" in file_path:
                     return data.get("content", "")
 
-                # Sonst gehe von einem dynamischen Prompt aus, nehme "template"
                 return data.get("template", "")
 
         except (FileNotFoundError, json.JSONDecodeError):
             return "⚠ Fehler beim Laden des Prompts"
-
-    def show_cost_warning(self):
-        """Zeigt eine Warnung an, wenn eine API mit Kosten genutzt wird."""
-        if self.manual_radio.isChecked():
-            return True  # Kein Hinweis nötig
-
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Warning)
-        msg.setWindowTitle("Kostenhinweis")
-        msg.setText("Die gewählte API kann Kosten verursachen. Möchtest du trotzdem fortfahren?")
-        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        response = msg.exec()
-
-        return response == QMessageBox.StandardButton.Yes
 
 class ManualProcessingPage(QWidget):
     def __init__(self, wizard):
@@ -888,6 +926,32 @@ class CardSelectionPage(QWidget):
         self.wizard.cards = cards
         self.wizard.next_step()
 
+from fpdf import FPDF
+
+class PDF(FPDF):
+    def __init__(self):
+        super().__init__()
+        self.set_auto_page_break(auto=True, margin=15)
+        self.add_page()
+        self.set_font("Arial", "", 12)
+
+    def add_card(self, question, answer):
+        """Fügt eine Karteikarte mit Frage und Antwort zum PDF hinzu."""
+        self.set_font("Arial", "B", 12)
+        self.multi_cell(0, 10, f"Frage: {question}", border=0)
+        self.ln(5)
+        self.set_font("Arial", "", 12)
+        self.multi_cell(0, 10, f"Antwort: {answer}", border=0)
+        self.ln(10)
+
+    def save_pdf(self, file_path, cards):
+        """Speichert das PDF mit allen Karteikarten."""
+        for card in cards:
+            self.add_card(card["question"], card["answer"])
+        
+        self.output(file_path, "F")  # Speichert als Datei
+
+
 class SummaryPage(QWidget):
     def __init__(self, wizard):
         super().__init__()
@@ -903,54 +967,49 @@ class SummaryPage(QWidget):
         self.scroll_area.setWidget(self.scroll_widget)
         self.scroll_area.setWidgetResizable(True)
 
-        self.save_button = QPushButton("💾 Speichern")
-        self.save_button.clicked.connect(self.save_cards)
+        # Speicheroptionen
+        self.save_txt_button = QPushButton("📄 Als TXT speichern")
+        self.save_csv_button = QPushButton("📑 Als CSV (Anki) speichern")
+        self.save_pdf_button = QPushButton("🖨️ Als PDF speichern")
 
-        # Layout
+        self.save_txt_button.clicked.connect(self.save_as_txt)
+        self.save_csv_button.clicked.connect(self.save_as_csv)
+        self.save_pdf_button.clicked.connect(self.save_as_pdf)
+
+        # Layout setzen
         layout = QVBoxLayout()
         layout.addWidget(self.label)
         layout.addWidget(self.scroll_area)
-        layout.addWidget(self.save_button)
+        layout.addWidget(self.save_txt_button)
+        layout.addWidget(self.save_csv_button)
+        layout.addWidget(self.save_pdf_button)
         self.setLayout(layout)
 
     def initializePage(self):
-        """Initialisiert die Seite – zeigt generierte Karteikarten."""
-        logging.debug("SummaryPage: Lade Karteikarten zur Anzeige.")
+        """Initialisiert die Zusammenfassungsseite und deaktiviert die Navigation."""
+        self.wizard.btn_prev.setEnabled(False)
+        self.wizard.btn_next.setEnabled(False)
 
         if hasattr(self.wizard, "manual_answers") and self.wizard.manual_answers:
-            logging.debug("SummaryPage: Manuelle Verarbeitung erkannt – Starte Analyse.")
             self.process_manual_qna_pairs()
         else:
-            logging.debug("SummaryPage: API-generierte Karteikarten anzeigen.")
             self.display_cards(self.wizard.cards)
 
     def process_manual_qna_pairs(self):
         """Verarbeitet manuelle Antworten und zeigt sie an."""
         logging.debug("SummaryPage: Starte Verarbeitung der manuellen Antworten...")
-        
+
         manual_answers = self.wizard.manual_answers
-        total_answers = len(manual_answers)
         processed_cards = []
 
-        progress = QProgressDialog("Verarbeite Antworten...", "Abbrechen", 0, total_answers, self)
-        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
-        progress.setMinimumDuration(500)
-        progress.setValue(0)
-
-        for i, entry in enumerate(manual_answers):
-            if progress.wasCanceled():
-                logging.warning("⚠ Verarbeitung abgebrochen!")
-                return
-
+        for entry in manual_answers:
             qna_pairs = self.wizard.qna_generator.extract_qna_pairs(entry["answer"])
             if qna_pairs:
-                processed_cards.extend([{"question": q["question"], "answer": q["answer"], "selected": True} for q in qna_pairs])
+                processed_cards.extend([
+                    {"question": q["question"], "answer": q["answer"], "selected": True} for q in qna_pairs
+                ])
             else:
                 logging.warning(f"⚠ Fehlerhafte Eingabe erkannt: {entry}")
-
-            progress.setValue(i + 1)
-
-        progress.close()
 
         if processed_cards:
             self.wizard.cards = processed_cards
@@ -960,27 +1019,32 @@ class SummaryPage(QWidget):
             QMessageBox.warning(self, "Fehler", "⚠ Keine validen QnA-Paare gefunden!")
 
     def display_cards(self, cards):
-        """Zeigt die generierten Karteikarten an."""
-        logging.debug(f"SummaryPage: Zeige {len(cards)} Karteikarten an.")
+        """Zeigt die generierten Karteikarten in der UI an."""
 
         # Entferne vorherige Inhalte
-        for i in reversed(range(self.scroll_layout.count())):
-            self.scroll_layout.itemAt(i).widget().setParent(None)
+        while self.scroll_layout.count():
+            item = self.scroll_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-        self.card_widgets = []
+        if not cards:
+            self.label.setText("⚠ Keine validen Karteikarten gefunden.")
+            return
+
         for card in cards:
             card_layout = QHBoxLayout()
 
             question_edit = QTextEdit(card["question"])
-            question_edit.setFixedHeight(100)
+            question_edit.setFixedHeight(80)
 
             answer_edit = QTextEdit(card["answer"])
-            answer_edit.setFixedHeight(100)
+            answer_edit.setFixedHeight(80)
 
             check_box = QCheckBox("Nutzen")
             check_box.setChecked(card["selected"])
 
-            reset_button = QPushButton("🔄 Zurücksetzen")
+            reset_button = QPushButton("🔄")
+            reset_button.setToolTip("Zurücksetzen")
             reset_button.clicked.connect(lambda _, q=question_edit, a=answer_edit, c=card: self.reset_card(q, a, c))
 
             card_layout.addWidget(check_box)
@@ -989,18 +1053,61 @@ class SummaryPage(QWidget):
             card_layout.addWidget(reset_button)
 
             self.scroll_layout.addLayout(card_layout)
-            self.card_widgets.append((question_edit, answer_edit, check_box))
+
+        self.label.setText(f"✅ {len(cards)} Karteikarten bereit zum Speichern.")
 
     def reset_card(self, question_edit, answer_edit, card):
-        """Setzt die Karteikarte auf den Originalzustand zurück."""
-        logging.debug(f"Karteikarte zurückgesetzt: {card['question']}")
+        """Setzt eine Karteikarte auf den Originalzustand zurück."""
         question_edit.setText(card["question"])
         answer_edit.setText(card["answer"])
 
-    def save_cards(self):
-        """Speichert die Karteikarten in eine Datei."""
-        logging.info("💾 Speichere Karteikarten...")
-        QMessageBox.information(self, "Speichern", "Karteikarten erfolgreich gespeichert!")
+    def save_as_txt(self):
+        """Speichert die Karteikarten als einfache TXT-Datei."""
+        file_path, _ = QFileDialog.getSaveFileName(self, "Speichern als TXT", "", "Textdateien (*.txt)")
+        if not file_path:
+            return
+
+        with open(file_path, "w", encoding="utf-8") as file:
+            for card in self.wizard.cards:
+                file.write(f"Frage: {card['question']}\n")
+                file.write(f"Antwort: {card['answer']}\n")
+                file.write("\n" + "-" * 40 + "\n\n")
+
+        QMessageBox.information(self, "Speichern erfolgreich", "Die Karteikarten wurden als TXT gespeichert.")
+
+    def save_as_csv(self):
+        """Speichert die Karteikarten im Anki-kompatiblen CSV-Format."""
+        file_path, _ = QFileDialog.getSaveFileName(self, "Speichern als CSV", "", "CSV-Dateien (*.csv)")
+        if not file_path:
+            return
+
+        with open(file_path, "w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file, delimiter="\t")
+            for card in self.wizard.cards:
+                writer.writerow([card["question"], card["answer"]])
+
+        QMessageBox.information(self, "Speichern erfolgreich", "Die Karteikarten wurden als CSV gespeichert.")
+
+    def save_as_pdf(self):
+        """Speichert die Karteikarten als PDF."""
+        file_path, _ = QFileDialog.getSaveFileName(self, "Speichern unter", "", "PDF-Dateien (*.pdf)")
+
+        if not file_path:
+            return  # Falls der Nutzer abbricht
+
+        if not file_path.lower().endswith(".pdf"):
+            file_path += ".pdf"
+
+        pdf = PDF()
+
+        try:
+            pdf.save_pdf(file_path, self.wizard.cards)
+            QMessageBox.information(self, "Erfolg", "PDF erfolgreich gespeichert!")
+        except Exception as e:
+            logging.error(f"❌ Fehler beim PDF-Speichern: {e}")
+            QMessageBox.critical(self, "Fehler", f"Fehler beim Speichern des PDFs: {e}")
+
+
 
 
 if __name__ == "__main__":
