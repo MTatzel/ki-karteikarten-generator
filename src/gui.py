@@ -25,10 +25,6 @@ from pdf_parser.pdf_parser import PDFParser
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Dummy-Funktion zum Simulieren der PDF-Chunks
-def chunk_pdf(file_path, start, end):
-    return [f"Chunk {i}: Beispieltext aus der PDF" for i in range(start, end + 1)]
-
 class Stepper(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -88,7 +84,7 @@ class Stepper(QMainWindow):
         self.chunk_page = ChunkEditingPage(self)
         self.api_page = ApiSelectionPage(self)
         self.manual_page = ManualProcessingPage(self)
-        self.card_page = CardSelectionPage(self)
+        self.card_page = APIProcessingPage(self)
         self.summary_page = SummaryPage(self)
 
         self.stacked_widget.addWidget(self.selection_page)
@@ -156,7 +152,7 @@ class Stepper(QMainWindow):
                     self.manual_page.initializePage()
                     self.stacked_widget.setCurrentWidget(self.manual_page)  # Manuell-Seite setzen
                 else:
-                    logging.debug("DEBUG: OpenAI oder Gemini gewählt → Wechsel zu CardSelectionPage")
+                    logging.debug("DEBUG: OpenAI oder Gemini gewählt → Wechsel zu APIProcessingPage")
                     self.card_page.initializePage()
                     self.stacked_widget.setCurrentWidget(self.card_page)  # QnA-Verarbeitung setzen
 
@@ -692,6 +688,21 @@ class ApiSelectionPage(QWidget):
 
         except (FileNotFoundError, json.JSONDecodeError):
             return "⚠ Fehler beim Laden des Prompts"
+        
+    def show_cost_warning(self):
+        """Zeigt eine Warnung an, wenn eine API mit Kosten genutzt wird."""
+        if self.manual_radio.isChecked():
+            return True  # Kein Hinweis nötig
+
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Kostenhinweis")
+        msg.setText("Die gewählte API kann Kosten verursachen. Möchtest du trotzdem fortfahren?")
+        msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        response = msg.exec()
+
+        return response == QMessageBox.StandardButton.Yes
+
 
 class ManualProcessingPage(QWidget):
     def __init__(self, wizard):
@@ -843,7 +854,7 @@ class ManualProcessingPage(QWidget):
         QMessageBox.information(self, "Vorschau der generierten Fragen", preview_text)
 
 
-class CardSelectionPage(QWidget):
+class APIProcessingPage(QWidget):
     def __init__(self, wizard):
         super().__init__()
         self.wizard = wizard
@@ -1098,12 +1109,3 @@ class SummaryPage(QWidget):
         except Exception as e:
             logging.error(f"❌ Fehler beim PDF-Speichern: {e}")
             QMessageBox.critical(self, "Fehler", f"Fehler beim Speichern des PDFs: {e}")
-
-
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = Stepper()
-    window.show()
-    sys.exit(app.exec())
