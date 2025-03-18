@@ -1,134 +1,96 @@
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QPushButton, QLabel, QStackedWidget, QFrame
-)
-from PyQt6.QtCore import Qt
+from pdf_parser.pdf_parser import PDFParser
+from fpdf import FPDF
+import pytest
+import os
 
-class Stepper(QMainWindow):
-    def __init__(self):
-        super().__init__()
+@pytest.fixture
+def sample_pdf(tmp_path):
+    """Erstellt eine gültige Test-PDF mit ausreichend Text für das Chunking."""
+    pdf_path = tmp_path / "test.pdf"
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    
+    text = """
+    Überschrift 1
+    Dies ist ein langer Absatz, der als Testinhalt dient. Er enthält mehrere Sätze, damit die Chunking-Funktion etwas zum Verarbeiten hat.
+    
+    Überschrift 2
+    Hier beginnt ein neuer Abschnitt mit weiterem Inhalt, um das Chunking sinnvoll zu testen.
+    """
+    
+    pdf.multi_cell(0, 10, txt=text)
+    pdf.output(str(pdf_path))
+    return str(pdf_path)
 
-        self.setWindowTitle("PyQt6 Stepper Navigation")
-        self.setGeometry(100, 100, 700, 400)
+@pytest.fixture
+def short_pdf(tmp_path):
+    """Erstellt eine gültige PDF mit zu wenig Text für das Chunking."""
+    pdf_path = tmp_path / "short.pdf"
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.multi_cell(0, 10, txt="Zu kurzer Text.")
+    pdf.output(str(pdf_path))
+    return str(pdf_path)
 
-        # Schritt-Namen
-        self.steps = ["Schritt 1", "Schritt 2", "Schritt 3", "Schritt 4", "Schritt 5"]
-        self.current_step = 0
+@pytest.fixture
+def empty_pdf(tmp_path):
+    """Erstellt eine leere, aber gültige PDF-Datei."""
+    pdf_path = tmp_path / "empty.pdf"
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.output(str(pdf_path))
+    return str(pdf_path)
 
-        # Hauptlayout
-        main_layout = QVBoxLayout()
+def test_pdf_parser_full_run(sample_pdf):
+    """Testet den kompletten Verarbeitungsablauf des PDF-Parsers."""
+    parser = PDFParser(sample_pdf)
+    
+    # Starte den Parsing-Prozess
+    text_chunks = parser.extract_text(start_page=1, end_page=None)
 
-        # Indikator-Layout (für Kreise & Linien)
-        self.indicator_layout = QHBoxLayout()
-        self.indicator_layout.setSpacing(10)
+    print(f"DEBUG: Extrahierter Text für 'sample_pdf': {text_chunks}")
 
-        self.step_circles = []  # Speichert die Kreis-Labels
-        self.step_lines = []  # Speichert die Linien
-        for i in range(len(self.steps)):
-            # Kreis für den Schritt mit Text "Schritt X"
-            circle_label = QLabel(self.steps[i])
-            circle_label.setFixedSize(80, 30)
-            circle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            circle_label.setStyleSheet(self.get_circle_style(False))
-            self.step_circles.append(circle_label)
-            self.indicator_layout.addWidget(circle_label)
+    # **Test für normale PDF: Liste wird erwartet**
+    if isinstance(text_chunks, list):
+        assert len(text_chunks) > 0, "Die Liste sollte mindestens einen Textabschnitt enthalten."
+    else:
+        assert isinstance(text_chunks, str), f"Die Extraktion sollte eine Zeichenkette oder Liste zurückgeben, aber {type(text_chunks)} wurde zurückgegeben."
 
-            # Linie zwischen den Schritten (außer beim letzten)
-            if i < len(self.steps) - 1:
-                line = QFrame()
-                line.setFrameShape(QFrame.Shape.HLine)
-                line.setFrameShadow(QFrame.Shadow.Sunken)
-                line.setStyleSheet("background-color: lightgray; height: 2px;")
-                line.setFixedWidth(50)
-                self.step_lines.append(line)
-                self.indicator_layout.addWidget(line)
+    # Falls der Text zu kurz ist, sollte chunk_text nicht aufgerufen werden
+    if text_chunks == "PDF zu kurz":
+        return  
 
-        # Stacked Widget für die Schritte
-        self.stacked_widget = QStackedWidget()
-        for i, step_name in enumerate(self.steps):
-            step_page = QWidget()
-            step_layout = QVBoxLayout()
-            step_layout.addWidget(QLabel(f"Content for {step_name}"), alignment=Qt.AlignmentFlag.AlignCenter)
-            step_page.setLayout(step_layout)
-            self.stacked_widget.addWidget(step_page)
+    chunks = parser.chunk_text(min_tokens=50, max_tokens=300)
+    
+    assert isinstance(chunks, list), "Das Chunking sollte eine Liste zurückgeben."
+    assert len(chunks) > 0, "Es sollten Chunks erstellt werden."
+    
+    # Sicherstellen, dass keine leeren Chunks existieren
+    assert all(len(chunk) > 0 for chunk in chunks), "Kein Chunk sollte leer sein."
 
-        # Navigation Buttons
-        self.btn_prev = QPushButton("Previous")
-        self.btn_next = QPushButton("Next")
+def test_pdf_parser_empty_file(empty_pdf):
+    """Testet das Verhalten mit einer leeren PDF-Datei."""
+    parser = PDFParser(empty_pdf)
+    text_chunks = parser.extract_text(start_page=1, end_page=None)
 
-        self.btn_prev.clicked.connect(self.prev_step)
-        self.btn_next.clicked.connect(self.next_step)
-        self.btn_prev.setEnabled(False)  # Anfangs deaktiviert
+    print(f"DEBUG: Extrahierter Text für 'empty_pdf': {text_chunks}")
 
-        # Button-Layout
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.btn_prev)
-        button_layout.addWidget(self.btn_next)
+    # **Falls die PDF leer ist, muss eine Zeichenkette zurückkommen**
+    assert isinstance(text_chunks, str), f"Erwartet wurde eine Zeichenkette, aber {type(text_chunks)} wurde zurückgegeben."
+    assert text_chunks == "PDF zu kurz", f"Erwartet wurde 'PDF zu kurz', aber '{text_chunks}' wurde zurückgegeben."
 
-        # Alles ins Hauptlayout setzen
-        main_layout.addLayout(self.indicator_layout)
-        main_layout.addWidget(self.stacked_widget)
-        main_layout.addLayout(button_layout)
+def test_pdf_parser_short_text(short_pdf):
+    """Testet das Verhalten mit einer PDF, die zu wenig Text für Chunks enthält."""
+    parser = PDFParser(short_pdf)
+    text_chunks = parser.extract_text(start_page=1, end_page=None)
 
-        # Haupt-Widget setzen
-        container = QWidget()
-        container.setLayout(main_layout)
-        self.setCentralWidget(container)
+    print(f"DEBUG: Extrahierter Text für 'short_pdf': {text_chunks}")
 
-        # Ersten Schritt aktivieren
-        self.update_stepper()
+    # **Falls die PDF zu kurz ist, darf entweder "PDF zu kurz" oder eine leere Liste zurückkommen**
+    assert isinstance(text_chunks, (str, list)), f"Die Extraktion sollte eine Zeichenkette oder eine Liste zurückgeben, aber {type(text_chunks)} wurde zurückgegeben."
+    assert text_chunks in ["PDF zu kurz", []], f"Erwartet wurde 'PDF zu kurz' oder '[]', aber '{text_chunks}' wurde zurückgegeben."
 
-    def next_step(self):
-        if self.current_step < len(self.steps) - 1:
-            self.current_step += 1
-            self.stacked_widget.setCurrentIndex(self.current_step)
-            self.update_stepper()
-
-    def prev_step(self):
-        if self.current_step > 0:
-            self.current_step -= 1
-            self.stacked_widget.setCurrentIndex(self.current_step)
-            self.update_stepper()
-
-    def update_stepper(self):
-        # Indikatoren aktualisieren (jetzt auch vergangene Schritte farbig!)
-        for i, circle in enumerate(self.step_circles):
-            if i <= self.current_step:  # Alle bisherigen Schritte markieren
-                circle.setStyleSheet(self.get_circle_style(True))
-            else:
-                circle.setStyleSheet(self.get_circle_style(False))
-
-        # Linien aktualisieren (hervorgehoben für vergangene Schritte)
-        for i, line in enumerate(self.step_lines):
-            if i < self.current_step:
-                line.setStyleSheet("background-color: purple; height: 2px;")
-            else:
-                line.setStyleSheet("background-color: lightgray; height: 2px;")
-
-        # Button-Zustände aktualisieren
-        self.btn_prev.setEnabled(self.current_step > 0)
-        self.btn_next.setEnabled(self.current_step < len(self.steps) - 1)
-
-    def get_circle_style(self, active):
-        """Gibt das Styling für die Schritt-Kreise zurück."""
-        if active:
-            return """
-                background-color: purple; 
-                color: white; 
-                border-radius: 10px; 
-                font-weight: bold;
-                border: 2px solid purple;
-            """
-        else:
-            return """
-                background-color: lightgray; 
-                color: black; 
-                border-radius: 10px;
-                border: 2px solid gray;
-            """
-
-if __name__ == "__main__":
-    app = QApplication([])
-    window = Stepper()
-    window.show()
-    app.exec()
+    chunks = parser.chunk_text(min_tokens=50, max_tokens=300)
+    assert chunks in ["PDF zu kurz", []], f"Erwartet wurde 'PDF zu kurz' oder '[]', aber '{chunks}' wurde zurückgegeben."

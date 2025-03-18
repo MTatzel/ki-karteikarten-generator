@@ -112,6 +112,11 @@ class PDFParser:
         # Setze self.raw_text für Kompatibilität mit chunk_text()
         self.raw_text = "\n\n".join(self.chunks)
 
+        MIN_TEXT_LENGTH = 50  # Mindestanzahl an Zeichen für eine sinnvolle Verarbeitung
+        if len(self.raw_text) < MIN_TEXT_LENGTH:
+            logging.warning("Der extrahierte Text ist zu kurz für die Verarbeitung.")
+            return "PDF zu kurz"
+
         # DEBUG: Ausgabe des extrahierten Textes und self.raw_text
         logging.debug(f"Extrahierter Text: {self.raw_text[:500]}...")  # Nur die ersten 500 Zeichen
 
