@@ -56,7 +56,13 @@ Die folgenden Wireframes zeigen die wichtigsten UI-Ansichten:
 
 ![Wireframe Startseite](../docs/images/wireframe_start.png)
 
+![Wireframe Chunks](../docs/images/wireframe_chunks.png)
+
 ![Wireframe Verarbeitung](../docs/images/wireframe_processing.png)
+
+![Wireframe Manuell](../docs/images/wireframe_manual.png)
+
+![Wireframe Manuell](../docs/images/wireframe_export.png)
 
 ## Fehlerbehebung
 ### Die Anwendung startet nicht
