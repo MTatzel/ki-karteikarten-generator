@@ -62,7 +62,7 @@ Die folgenden Wireframes zeigen die wichtigsten UI-Ansichten:
 
 ![Wireframe Manuell](../docs/images/wireframe_manual.png)
 
-![Wireframe Manuell](../docs/images/wireframe_export.png)
+![Wireframe Export](../docs/images/wireframe_export.png)
 
 ## Fehlerbehebung
 ### Die Anwendung startet nicht
